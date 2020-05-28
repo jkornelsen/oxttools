@@ -2,7 +2,7 @@
 
 import sys, os, re
 import argparse, codecs
-import lxml.etree as et
+import xml.etree.ElementTree as et
 from palaso.langtags import LangTag
 
 try:
@@ -51,13 +51,14 @@ if args.langtag is not None:
     if args.langtag.script:
         t.define('lscript', args.langtag.script.lower())
     t.define('region', args.langtag.region)
-    # print t.vars
+    # print(t.vars)
 
 t.parse(args.template)
 oldd = et.parse(args.infile).getroot()
-nsmap = oldd.nsmap
+nsmap = oldd.ns_map
 nsmap['sil'] = 'urn://www.sil.org/ldml/0.1'
-d = et.Element(oldd.tag, nsmap=nsmap)
+d = et.Element(oldd.tag)
+d.ns_map = nsmap
 d[:] = oldd[:]
 if args.template.endswith('.fodt'):
     t.processodt(context=d)

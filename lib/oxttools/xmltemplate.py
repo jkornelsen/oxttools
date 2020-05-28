@@ -1,8 +1,8 @@
 #!/usr/bin/python
 
-import lxml.etree as et
+import xml.etree.ElementTree as et
 import codecs, re, copy, sys
-from lxml.etree import XPathEvalError
+from xml.etree.ElementTree import ParseError
 
 tmpl = "{uri://nrsi.sil.org/template/0.1}"
 tmpla = "{uri://nrsi.sil.org/template_attributes/0.1}"
@@ -44,12 +44,17 @@ class IterDict(object) :
 
 def asstr(v) :
     if isinstance(v, stringtype) : return v
-    elif isinstance(v, et._Element) : return v.text
+    elif isinstance(v, et.Element) : return v.text
     elif len(v) == 0 : return ''
     v = v[0]
-    if isinstance(v, et._Element) :
+    if isinstance(v, et.Element) :
         return v.text
     return v
+
+def CDATA(text=None):
+    element = etree.Element('![CDATA[')
+    element.text = text
+    return element
 
 docs = {}
 class Templater(object) :
@@ -69,7 +74,7 @@ class Templater(object) :
         self.doc = et.parse(fname)
 
     def __str__(self) :
-        return et.tounicode(self.doc)
+        return et.tostring(self.doc)
 
     def process(self, root = None, context = None, nest = False) :
         if nest :
@@ -97,7 +102,7 @@ class Templater(object) :
                     self.processattrib(c, context)
                     v = self.xpath(c.attrib[tmpl+"path"], context, c)
                     t = asstr(v)
-                    root.text = t if tmpl+"cdata" not in c.attrib or t == '' else et.CDATA(t)
+                    root.text = t if tmpl+"cdata" not in c.attrib or t == '' else CDATA(t)
                 elif name == 'if' :
                     self.processattrib(c, context)
                     v = self.xpath(c.attrib[tmpl+"path"], context, c)
@@ -305,15 +310,33 @@ class Templater(object) :
                 i += 1
             else:
                 root, i = self.processodt(root=c, parent=root, index=i, context=context, infor=infor)
-                if infor is None and isinstance(parent, et._Element) and (parent.getparent() is None or root is parent or root in parent.iterancestors()):
+                if infor is None and isinstance(parent, et.Element) and (parent.getparent() is None or root is parent or root in parent.iterancestors()):
                     return (root, i)
         return (parent, index+1)
 
     def xpathall(self, path, context, base):
+        def replace_var(match):
+            varname = match.group(1)
+            val = self.vars[varname]
+            try:
+                float(val)
+                return val
+            except ValueError:
+                # quote strings
+                return "'" + self.vars[varname] + "'"
+        def replace_ext(match):
+            print(match.group(0))
+            funcname = match.group(1)
+            funcargs = match.group(2).split(", ")
+            funcargs = [s.strip("'\"") for s in funcargs]
+            return getattr(self, "fn_" + funcname)(context, *funcargs)
         try:
-            res = context.xpath(path, extensions = self.fns, smart_strings=False, namespaces = self.ns, **self.vars)
-        except XPathEvalError as e:
-            raise SyntaxError("{} in xpath expression: {}".format(e.args[0], path))
+            path = re.sub(r"\$(\w+)", replace_var, path, re.M)
+            for ex_ns, ex_name in self.fns:
+                path = re.sub("(" + ex_name + ")\(([^)]*)\)", replace_ext, path)
+            res = context.findall(path, namespaces = self.ns)
+        except KeyError as e:
+            raise SyntaxError("{} in xpath expression: \"{}\"".format(e.args[0], path))
         return res
 
     def xpath(self, path, context, base) :
@@ -358,7 +381,7 @@ class Templater(object) :
         try :
             res = re.sub(regexp, repl, txt)
         except Exception as e :
-            raise et.XPathEvalError(e.message + ": txt = {}, regexp = {}, repl = {}".format(txt, regexp, repl))
+            raise et.ParseError(e.message + ": txt = {}, regexp = {}, repl = {}".format(txt, regexp, repl))
         return res
 
     @staticmethod
@@ -447,9 +470,10 @@ if __name__ == '__main__' :
 
     t.parse(args.template)
     oldd = et.parse(args.infile).getroot()
-    nsmap = oldd.nsmap
+    nsmap = oldd.ns_map
     nsmap['sil'] = 'urn://www.sil.org/ldml/0.1'
-    d = et.Element(oldd.tag, nsmap=nsmap)
+    d = et.Element(oldd.tag)
+    d.ns_map = nsmap
     d[:] = oldd[:]
     if args.template.endswith('.fodt'):
         t.processodt(context=d)

@@ -9,7 +9,7 @@ except ImportError:
 import oxttools.hunspell as hs
 from argparse import ArgumentParser
 from zipfile import ZipFile, ZipInfo, ZIP_DEFLATED
-import lxml.etree as et
+import xml.etree.ElementTree as et
 
 if sys.version_info[0] >= 3 :
     unicode = str
@@ -53,20 +53,26 @@ def zipadd(zipfile, data, fname) :
     tlocal = time.localtime()
     zinfo.date_time = (tlocal[0], tlocal[1]+1, tlocal[2]+1, tlocal[3], tlocal[4], tlocal[5])
     zinfo.compress_type = ZIP_DEFLATED
-    zinfo.external_attr = 0664 << 16
+    zinfo.external_attr = 0o664 << 16
     zipfile.writestr(zinfo, data)
 
 def ziphunspell(ozip, hun, name) :
         zipadd(ozip, hun.getaff().encode('utf-8'), 'dictionaries/' + name + '.aff')
         zipadd(ozip, hun.getdic().encode('utf-8'), 'dictionaries/' + name + '.dic')
 
-def zipnfcfile(ozip, fin, fout, affix=None) :
+def zipnfcfile(ozip, fin, fout, normalize, affix=None) :
     dat = ""
     with open(fin) as fd :
-        dat += u"\n".join([unicodedata.normalize('NFC', x) for x in fd.readlines()])
+        if normalize in ('NFC','NFD'):
+            dat += u"\n".join([unicodedata.normalize(normalize, x) for x in fd.readlines()])
+        else:
+            dat += u"\n".join([x for x in fd.readlines()])
     if affix is not None :
-        with oepn(affix) as fd:
-            dat += u"\n".join([unicodedata.normalize('NFC', x) for x in fd.readlines()])
+        with open(affix) as fd:
+            if normalize in ('NFC','NFD'):
+                dat += u"\n".join([unicodedata.normalize(normalize, x) for x in fd.readlines()])
+            else:
+                dat += u"\n".join([x for x in fd.readlines()])
     zipadd(ozip, dat.replace("\uFEFF", ""), fout)
 
 scripttypes = {
@@ -86,6 +92,7 @@ parser.add_argument('-f','--font',action='append',help='Specifies font for seman
 parser.add_argument('-l','--langname',help='Language name for UI strings')
 parser.add_argument('-d','--dict',help='Wordlist dictionary. For hunspell dictionaries, specify the .aff file. Will try to infer what kind of xml')
 parser.add_argument('-a','--affix',help='Merge the given affix file data into the generated .aff file')
+parser.add_argument('-n','--normalize',default="NFC",help="normalize to NFC, NFD or none")
 parser.add_argument('-v','--version',default='0.1',help='OXT version number')
 parser.add_argument('--dicttype',help='Specifies dictionary type [hunspell, pt, ptall, text]')
 parser.add_argument('--publisher',help='Name of publisher')
@@ -110,7 +117,7 @@ else :
 test = args.langtag + "-"
 for k in langres:
     if k.startswith(test):
-        print "Can't have unregioned tag {}, using {} instead.".format(args.langtag, k)
+        print("Can't have unregioned tag {}, using {} instead.".format(args.langtag, k))
         args.langtag = k
         break
 
@@ -170,15 +177,15 @@ if args.dict :
     elif args.dicttype == 'pt' or args.dicttype == 'ptall' :
         itemcount = 0
         wordcount = 0
-        doc = et.parse(args.dict)
-        hun = hs.Hunspell(args.langtag, puncs=args.word)
-        for e in doc.findall('//item') :
+        doc = et.parse(args.dict).getRoot()
+        hun = hs.Hunspell(args.langtag, args.normalize, puncs=args.word)
+        for e in doc.iter('item') :
             itemcount += 1
             if args.dicttype != 'ptall' and e.attrib['spelling'] != 'Correct' : continue
-            hun.addword(unicode(e.attrib['word']))
+            hun.addword(unicode(e.get('word')))
             wordcount += 1
         if wordcount * 4 < itemcount :  #warn if less than 25% of the words are valid
-            print "Warning: only {:.0f}% of the words marked as correct and entered into the dictionary. Consider using --dicttype ptall".format(wordcount / float(itemcount) * 100)
+            print("Warning: only {:.0f}% of the words marked as correct and entered into the dictionary. Consider using --dicttype ptall".format(wordcount / float(itemcount) * 100))
         if args.affix is not None :
             hun.mergeaffix(args.affix)
         ziphunspell(ozip, hun, args.langtag)
