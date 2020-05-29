@@ -3,9 +3,11 @@
 import time, os, codecs, sys
 try:
     import oxttools.xmltemplate as xtmpl
+    import oxttools.modified_etree as metree
 except ImportError:
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'lib')))
     import oxttools.xmltemplate as xtmpl
+    import oxttools.modified_etree as metree
 import oxttools.hunspell as hs
 from argparse import ArgumentParser
 from zipfile import ZipFile, ZipInfo, ZIP_DEFLATED
@@ -190,7 +192,7 @@ if args.dict :
             hun.mergeaffix(args.affix)
         ziphunspell(ozip, hun, args.langtag)
     elif args.dicttype == 'text' :
-        hun = hs.Hunspell(args.langtag, puncs=args.word)
+        hun = hs.Hunspell(args.langtag, args.normalize, puncs=args.word)
         with codecs.open(args.dict, encoding='utf-8') as infile :
             for l in infile.readlines() :
                 hun.addword(l.replace("\uFEFF", "").strip())

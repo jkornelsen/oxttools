@@ -3,6 +3,7 @@
 import xml.etree.ElementTree as et
 import codecs, re, copy, sys
 from xml.etree.ElementTree import ParseError
+import oxttools.modified_etree as metree
 
 tmpl = "{uri://nrsi.sil.org/template/0.1}"
 tmpla = "{uri://nrsi.sil.org/template_attributes/0.1}"
@@ -71,10 +72,17 @@ class Templater(object) :
         self.fns[(ns, name)] = fn
 
     def parse(self, fname) :
-        self.doc = et.parse(fname)
+        self.doc = metree.parse(fname)
 
     def __str__(self) :
-        return et.tostring(self.doc)
+        root = self.doc.getroot()
+        if False:
+            # create namespace definitions even if not used
+            for key, val in metree.namespaces_read.items():
+                if key:
+                    #root.set("xmlns:" + key, val)
+                    et.SubElement(root, et.QName(val, key))
+        return et.tostring(root, encoding='unicode')
 
     def process(self, root = None, context = None, nest = False) :
         if nest :
@@ -162,7 +170,7 @@ class Templater(object) :
         return root
 
     def processattrib(self, node, context) :
-        for k, v in node.attrib.items() :
+        for k, v in list(node.attrib.items()) :
             if k.startswith(tmpla) :
                 newk = k[len(tmpla):]
                 for t in node.attrib.keys() :
@@ -316,16 +324,11 @@ class Templater(object) :
 
     def xpathall(self, path, context, base):
         def replace_var(match):
+            """Replace Xpath vars such as $lang_tag with their value."""
             varname = match.group(1)
-            val = self.vars[varname]
-            try:
-                float(val)
-                return val
-            except ValueError:
-                # quote strings
-                return "'" + self.vars[varname] + "'"
+            return self.vars[varname]
         def replace_ext(match):
-            print(match.group(0))
+            """Replace Xpath extension functions such concat() with their result."""
             funcname = match.group(1)
             funcargs = match.group(2).split(", ")
             funcargs = [s.strip("'\"") for s in funcargs]
@@ -334,9 +337,11 @@ class Templater(object) :
             path = re.sub(r"\$(\w+)", replace_var, path, re.M)
             for ex_ns, ex_name in self.fns:
                 path = re.sub("(" + ex_name + ")\(([^)]*)\)", replace_ext, path)
+            if not path:
+                return ""
             res = context.findall(path, namespaces = self.ns)
-        except KeyError as e:
-            raise SyntaxError("{} in xpath expression: \"{}\"".format(e.args[0], path))
+        except (KeyError, TypeError) as e:
+            raise Exception("{} in xpath expression: \"{}\"".format(e.args[0], path)) from None
         return res
 
     def xpath(self, path, context, base) :
@@ -359,7 +364,7 @@ class Templater(object) :
     def fn_doc(context, txt) :
         txt = asstr(txt)
         if txt not in docs :
-            docs[txt] = et.parse(txt)
+            docs[txt] = metree.parse(txt)
         return docs[txt].getroot()
 
     @staticmethod
@@ -414,8 +419,8 @@ class Templater(object) :
         return ''
 
     @staticmethod
-    def fn_concat(context, a, b):
-        return a + b
+    def fn_concat(context, *vals):
+        return "".join(vals)
 
     @staticmethod
     def fn_set(context, *vals):
@@ -469,7 +474,7 @@ if __name__ == '__main__' :
         t.define('region', ltag.region)
 
     t.parse(args.template)
-    oldd = et.parse(args.infile).getroot()
+    oldd = metree.parse(args.infile).getroot()
     nsmap = oldd.ns_map
     nsmap['sil'] = 'urn://www.sil.org/ldml/0.1'
     d = et.Element(oldd.tag)
