@@ -76,12 +76,7 @@ class Templater(object) :
 
     def __str__(self) :
         root = self.doc.getroot()
-        if False:
-            # create namespace definitions even if not used
-            for key, val in metree.namespaces_read.items():
-                if key:
-                    #root.set("xmlns:" + key, val)
-                    et.SubElement(root, et.QName(val, key))
+        metree.add_namespaces_not_found(root)
         return et.tostring(root, encoding='unicode')
 
     def process(self, root = None, context = None, nest = False) :
@@ -115,7 +110,7 @@ class Templater(object) :
                     self.processattrib(c, context)
                     v = self.xpath(c.attrib[tmpl+"path"], context, c)
                     if v :
-                        index = root.index(c)
+                        index = list(root).index(c)
                         node = self.process(root = c, context = context, nest=True)
                         if node is None : node = []
                         for n in list(node) :
@@ -124,7 +119,7 @@ class Templater(object) :
                             index += 1
                 elif name == 'context' :
                     self.processattrib(c, context)
-                    index = root.index(c)
+                    index = list(root).index(c)
                     node = self.process(root = c, context = self.xpath(c.attrib[tmpl+"path"], context, c), nest=True)
                     if node is None : node = []
                     for n in list(node) :
@@ -133,7 +128,7 @@ class Templater(object) :
                         index += 1
                 elif name == 'foreach' :
                     uppervars = self.vars.copy()
-                    index = root.index(c)
+                    index = list(root).index(c)
                     itervars = IterDict()
                     nodes = []
                     for k, v in c.attrib.items() :
@@ -340,6 +335,8 @@ class Templater(object) :
             if not path:
                 return ""
             res = context.findall(path, namespaces = self.ns)
+            if not res:
+                res = path
         except (KeyError, TypeError) as e:
             raise Exception("{} in xpath expression: \"{}\"".format(e.args[0], path)) from None
         return res
